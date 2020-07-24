@@ -120,9 +120,9 @@ func (c *col) String() string {
 	name := generateName(c.ColumnName)
 	var gotype string
 	switch {
-	case strings.Contains(c.Type, "int") || strings.Contains(c.Type, "numeric"):
+	case strings.Contains(c.Type, "int"):
 		gotype = "int64"
-	case strings.Contains(c.Type, "float"):
+	case strings.Contains(c.Type, "float") || strings.Contains(c.Type, "numeric"):
 		gotype = "float64"
 	case strings.Contains(c.Type, "varchar") || strings.Contains(c.Type, "text"):
 		gotype = "string"
