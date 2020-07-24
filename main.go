@@ -21,6 +21,9 @@ func NewStore(host, port, dbname, login, password, sslmode string) (s *Store, er
 	conn, err := pgx.Connect(context.Background(),
 		fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 			host, port, login, password, dbname, sslmode))
+	if err != nil {
+		return nil, err
+	}
 	return &Store{db: conn}, conn.Ping(context.TODO())
 }
 
