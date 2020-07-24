@@ -37,11 +37,11 @@ func (s *Store) Close() {
 func getSchemaTables(ctx context.Context, db *Store) error {
 	const q = `
 	SELECT
-		jsonb_build_object( 'table', table_name, 'cols', jsonb_agg(jsonb_build_object('position', ordinal_position, 'comment', col_comment, 'name', column_name, 'is_nullable', CASE WHEN is_nullable = 'YES' THEN TRUE ELSE FALSE END , 'type', udt_name)) )
+		jsonb_build_object('schema', table_schema, 'table', table_name, 'cols', jsonb_agg(jsonb_build_object('position', ordinal_position, 'comment', col_comment, 'table_name', table_name, 'column_name', column_name, 'is_nullable', CASE WHEN is_nullable = 'YES' THEN TRUE ELSE FALSE END , 'type', udt_name)) )
 	FROM
 		(
 			SELECT
-				table_name , column_name , ordinal_position , is_nullable , udt_name, COALESCE(col_description(table_name::regclass::oid, ordinal_position), '') AS col_comment
+				table_schema, table_name , column_name , ordinal_position , is_nullable , udt_name, COALESCE(col_description(table_name::regclass::oid, ordinal_position), '') AS col_comment
 			FROM
 				information_schema.COLUMNS
 			WHERE
@@ -50,7 +50,8 @@ func getSchemaTables(ctx context.Context, db *Store) error {
 				1, 3
 		) AS cols
 	GROUP BY
-		table_name`
+		table_schema
+		, table_name`
 	cur := db.Cursor()
 	rows, err := cur.Query(ctx, q)
 	if err != nil {
@@ -70,8 +71,8 @@ func getSchemaTables(ctx context.Context, db *Store) error {
 	for _, t := range tables {
 		model += t.String()
 	}
-
-	f, err := os.Create("models_genpg.go")
+	outputfilename := "models_genpg.go"
+	f, err := os.Create(outputfilename)
 	if err != nil {
 		return err
 	}
@@ -83,17 +84,18 @@ func getSchemaTables(ctx context.Context, db *Store) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return exec.Command("gofmt", "-s", "-w", "models.go").Run()
+	return exec.Command("gofmt", "-s", "-w", outputfilename).Run()
 }
 
 type table struct {
-	Name string `json:"table"`
-	Cols []col  `json:"cols"`
+	Schema string `json:"schema"`
+	Name   string `json:"table"`
+	Cols   []col  `json:"cols"`
 }
 
 func (t *table) String() string {
 	name := generateName(t.Name)
-	comment := `// ` + name + ` - [` + t.Name + `] SQL table` + "\n"
+	comment := `// ` + name + ` - [` + t.Schema + "." + t.Name + `] SQL table` + "\n"
 	st := comment + "type " + name + " struct {\n"
 
 	for _, col := range t.Cols {
@@ -104,14 +106,15 @@ func (t *table) String() string {
 
 type col struct {
 	Position   uint64 `json:"position"`
-	Name       string `json:"name"`
+	TableName  string `json:"table_name"`
+	ColumnName string `json:"column_name"`
 	IsNullable bool   `json:"is_nullable"`
 	Type       string `json:"type"`
 	Comment    string `json:"comment"`
 }
 
 func (c *col) String() string {
-	name := generateName(c.Name)
+	name := generateName(c.ColumnName)
 	var gotype string
 	switch {
 	case strings.Contains(c.Type, "int") || strings.Contains(c.Type, "numeric"):
@@ -143,7 +146,7 @@ func (c *col) String() string {
 		// (`sql:"` + c.Name + `"`),
 		(`json:"` + name + `"`),
 	}, ` `) + "`"
-	comment := `// [` + c.Name + `]` + ` ` + c.Comment
+	comment := `// [` + c.TableName + "." + c.ColumnName + `]` + ` ` + c.Comment
 	return name + " " + gotype + tags + comment + "\n"
 }
 
@@ -185,6 +188,8 @@ func main() {
 	defer db.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	getSchemaTables(ctx, db)
+	if err := getSchemaTables(ctx, db); err != nil {
+		panic(err)
+	}
 
 }
